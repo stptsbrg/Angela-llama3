@@ -93,6 +93,7 @@ class GroqClient
             CURLOPT_POSTFIELDS => json_encode($payload),
             CURLOPT_RETURNTRANSFER => false,
             CURLOPT_TIMEOUT => 30,
+            CURLOPT_CONNECTTIMEOUT => 10,
         ];
 
         if ($writeFunction !== null) {
@@ -144,12 +145,22 @@ class GroqClient
 
     /**
      * Execute the streaming chat completion request.
+     *
+     * @throws RuntimeException on curl failures or upstream HTTP errors.
      */
     public function streamChat(array $messages): void
     {
         $payload = $this->buildPayload($messages);
+        $httpStatusCode = 0;
 
-        $writeFunction = function ($ch, $data) {
+        $writeFunction = function ($ch, $data) use (&$httpStatusCode) {
+            if ($httpStatusCode >= 400) {
+                $decoded = json_decode($data, true);
+                $errorMsg = $decoded['error']['message']
+                    ?? $decoded['error']
+                    ?? "Upstream API error (HTTP $httpStatusCode)";
+                throw new RuntimeException($errorMsg);
+            }
             echo $data;
             flush();
             return strlen($data);
@@ -157,16 +168,43 @@ class GroqClient
 
         $options = $this->buildCurlOptions($payload, $writeFunction);
 
-        $ch = curl_init($this->apiUrl);
-        curl_setopt_array($ch, $options);
-        $result = curl_exec($ch);
-        if ($result === false) {
-            error_log('Groq API curl error: ' . curl_error($ch));
-            $httpCode = curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            if ($httpCode === 0) {
-                http_response_code(502);
+        $options[CURLOPT_HEADERFUNCTION] = function ($ch, $header) use (&$httpStatusCode) {
+            if (preg_match('/^HTTP\/\S+\s+(\d{3})/', $header, $matches)) {
+                $httpStatusCode = (int)$matches[1];
             }
+            return strlen($header);
+        };
+
+        $ch = curl_init($this->apiUrl);
+        if ($ch === false) {
+            throw new RuntimeException('Failed to initialize HTTP client (curl).');
         }
+
+        curl_setopt_array($ch, $options);
+
+        try {
+            $result = curl_exec($ch);
+        } catch (RuntimeException $e) {
+            curl_close($ch);
+            throw $e;
+        }
+
+        if ($result === false) {
+            $errno = curl_errno($ch);
+            $error = curl_error($ch);
+            curl_close($ch);
+
+            $message = match ($errno) {
+                CURLE_OPERATION_TIMEDOUT => 'Request to upstream API timed out.',
+                CURLE_COULDNT_RESOLVE_HOST => 'Could not resolve upstream API host.',
+                CURLE_COULDNT_CONNECT => 'Could not connect to upstream API.',
+                CURLE_SSL_CONNECT_ERROR => 'SSL connection error with upstream API.',
+                default => "Upstream request failed: $error (code $errno)",
+            };
+
+            throw new RuntimeException($message);
+        }
+
         curl_close($ch);
     }
 }
