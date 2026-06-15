@@ -1,0 +1,545 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Angela — Llama 3 Chat</title>
+  <style>
+    *,
+    *::before,
+    *::after {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    :root {
+      --bg: #0f0f13;
+      --surface: #1a1a24;
+      --surface-alt: #23233a;
+      --border: #2e2e48;
+      --accent: #7c5cfc;
+      --accent-hover: #6a48e6;
+      --text: #e4e4ed;
+      --text-muted: #8888a4;
+      --user-bubble: #7c5cfc;
+      --assistant-bubble: #1e1e32;
+      --error: #f44;
+      --radius: 12px;
+      --max-width: 780px;
+    }
+
+    html, body {
+      height: 100%;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    /* ── Layout ─────────────────────────────────────────── */
+    .app {
+      display: flex;
+      flex-direction: column;
+      height: 100vh;
+      max-width: var(--max-width);
+      margin: 0 auto;
+    }
+
+    /* ── Header ─────────────────────────────────────────── */
+    .header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 20px;
+      border-bottom: 1px solid var(--border);
+      flex-shrink: 0;
+    }
+
+    .header h1 {
+      font-size: 1.2rem;
+      font-weight: 600;
+      letter-spacing: 0.02em;
+    }
+
+    .header h1 span {
+      color: var(--accent);
+    }
+
+    .settings-btn {
+      background: none;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+      padding: 6px 12px;
+      border-radius: 8px;
+      cursor: pointer;
+      font-size: 0.8rem;
+      transition: border-color 0.2s, color 0.2s;
+    }
+
+    .settings-btn:hover {
+      border-color: var(--accent);
+      color: var(--text);
+    }
+
+    /* ── Settings panel ─────────────────────────────────── */
+    .settings {
+      display: none;
+      padding: 14px 20px;
+      border-bottom: 1px solid var(--border);
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+
+    .settings.open {
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+
+    .settings label {
+      font-size: 0.78rem;
+      color: var(--text-muted);
+      margin-bottom: 2px;
+    }
+
+    .settings input,
+    .settings textarea {
+      width: 100%;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 8px;
+      padding: 8px 12px;
+      font-size: 0.85rem;
+      font-family: inherit;
+      resize: vertical;
+    }
+
+    .settings input:focus,
+    .settings textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    /* ── Messages area ──────────────────────────────────── */
+    .messages {
+      flex: 1;
+      overflow-y: auto;
+      padding: 20px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+
+    .messages::-webkit-scrollbar {
+      width: 6px;
+    }
+
+    .messages::-webkit-scrollbar-thumb {
+      background: var(--border);
+      border-radius: 3px;
+    }
+
+    .empty-state {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      color: var(--text-muted);
+      gap: 8px;
+    }
+
+    .empty-state .logo {
+      font-size: 2.4rem;
+      margin-bottom: 4px;
+    }
+
+    .empty-state p {
+      font-size: 0.9rem;
+    }
+
+    /* ── Chat bubbles ───────────────────────────────────── */
+    .msg {
+      max-width: 85%;
+      padding: 12px 16px;
+      border-radius: var(--radius);
+      line-height: 1.55;
+      font-size: 0.92rem;
+      white-space: pre-wrap;
+      word-wrap: break-word;
+    }
+
+    .msg.user {
+      align-self: flex-end;
+      background: var(--user-bubble);
+      color: #fff;
+      border-bottom-right-radius: 4px;
+    }
+
+    .msg.assistant {
+      align-self: flex-start;
+      background: var(--assistant-bubble);
+      border-bottom-left-radius: 4px;
+    }
+
+    .msg.error {
+      align-self: center;
+      background: none;
+      border: 1px solid var(--error);
+      color: var(--error);
+      font-size: 0.84rem;
+      text-align: center;
+    }
+
+    .msg .role-label {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      color: var(--text-muted);
+      margin-bottom: 4px;
+    }
+
+    .msg.user .role-label {
+      color: rgba(255, 255, 255, 0.6);
+    }
+
+    .cursor {
+      display: inline-block;
+      width: 7px;
+      height: 1em;
+      background: var(--accent);
+      margin-left: 2px;
+      vertical-align: text-bottom;
+      animation: blink 0.8s step-end infinite;
+    }
+
+    @keyframes blink {
+      50% { opacity: 0; }
+    }
+
+    /* ── Input bar ──────────────────────────────────────── */
+    .input-bar {
+      display: flex;
+      gap: 10px;
+      padding: 14px 20px;
+      border-top: 1px solid var(--border);
+      background: var(--surface);
+      flex-shrink: 0;
+    }
+
+    .input-bar textarea {
+      flex: 1;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      color: var(--text);
+      border-radius: 10px;
+      padding: 10px 14px;
+      font-size: 0.92rem;
+      font-family: inherit;
+      resize: none;
+      min-height: 44px;
+      max-height: 140px;
+      line-height: 1.45;
+    }
+
+    .input-bar textarea:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    .input-bar textarea::placeholder {
+      color: var(--text-muted);
+    }
+
+    .send-btn {
+      align-self: flex-end;
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      border-radius: 10px;
+      width: 44px;
+      height: 44px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      flex-shrink: 0;
+      transition: background 0.2s;
+    }
+
+    .send-btn:hover:not(:disabled) {
+      background: var(--accent-hover);
+    }
+
+    .send-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+
+    .send-btn svg {
+      width: 20px;
+      height: 20px;
+    }
+
+    /* ── Footer ─────────────────────────────────────────── */
+    .footer {
+      text-align: center;
+      padding: 8px;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      flex-shrink: 0;
+    }
+
+    /* ── Responsive ─────────────────────────────────────── */
+    @media (max-width: 600px) {
+      .header { padding: 12px 14px; }
+      .messages { padding: 14px; }
+      .input-bar { padding: 10px 14px; }
+      .msg { max-width: 92%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <!-- Header -->
+    <div class="header">
+      <h1><span>Angela</span> — Llama 3</h1>
+      <button class="settings-btn" id="settingsToggle">Settings</button>
+    </div>
+
+    <!-- Settings -->
+    <div class="settings" id="settingsPanel">
+      <div>
+        <label for="apiUrl">Backend URL</label>
+        <input id="apiUrl" type="text" value="http://localhost:8080/index.php"
+               placeholder="http://localhost:8080/index.php" />
+      </div>
+      <div>
+        <label for="authToken">Auth Token (optional)</label>
+        <input id="authToken" type="password" placeholder="Bearer token for APP_AUTH_TOKEN" />
+      </div>
+      <div>
+        <label for="systemPrompt">System Prompt</label>
+        <textarea id="systemPrompt" rows="2"
+                  placeholder="e.g. You are Angela, a helpful assistant.">You are Angela, a helpful and friendly AI assistant powered by Llama 3.</textarea>
+      </div>
+    </div>
+
+    <!-- Messages -->
+    <div class="messages" id="messages">
+      <div class="empty-state" id="emptyState">
+        <div class="logo">&#x2728;</div>
+        <p>Start a conversation with Angela</p>
+      </div>
+    </div>
+
+    <!-- Input -->
+    <div class="input-bar">
+      <textarea id="userInput" rows="1" placeholder="Type a message..."
+                autofocus></textarea>
+      <button class="send-btn" id="sendBtn" title="Send">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor"
+             stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <line x1="22" y1="2" x2="11" y2="13"></line>
+          <polygon points="22 2 15 22 11 13 2 9 22 2"></polygon>
+        </svg>
+      </button>
+    </div>
+
+    <div class="footer">Angela &middot; Llama 3 via Groq &middot; SSE Streaming</div>
+  </div>
+
+  <script>
+    const messagesEl  = document.getElementById('messages');
+    const emptyState  = document.getElementById('emptyState');
+    const userInput   = document.getElementById('userInput');
+    const sendBtn     = document.getElementById('sendBtn');
+    const settingsBtn = document.getElementById('settingsToggle');
+    const settingsPanel = document.getElementById('settingsPanel');
+
+    let conversation = [];
+    let isStreaming = false;
+
+    /* ── Settings toggle ─────────────────────────── */
+    settingsBtn.addEventListener('click', () => {
+      settingsPanel.classList.toggle('open');
+    });
+
+    /* ── Auto-resize textarea ────────────────────── */
+    userInput.addEventListener('input', () => {
+      userInput.style.height = 'auto';
+      userInput.style.height = Math.min(userInput.scrollHeight, 140) + 'px';
+    });
+
+    /* ── Send on Enter (Shift+Enter for newline) ─── */
+    userInput.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && !e.shiftKey) {
+        e.preventDefault();
+        sendMessage();
+      }
+    });
+
+    sendBtn.addEventListener('click', sendMessage);
+
+    /* ── Helpers ──────────────────────────────────── */
+    function addBubble(role, text) {
+      if (emptyState) emptyState.remove();
+
+      const div = document.createElement('div');
+      div.className = 'msg ' + role;
+
+      const label = document.createElement('div');
+      label.className = 'role-label';
+      label.textContent = role === 'user' ? 'You' : 'Angela';
+      div.appendChild(label);
+
+      const content = document.createElement('span');
+      content.className = 'content';
+      content.textContent = text;
+      div.appendChild(content);
+
+      messagesEl.appendChild(div);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+      return content;
+    }
+
+    function addError(text) {
+      if (emptyState) emptyState.remove();
+      const div = document.createElement('div');
+      div.className = 'msg error';
+      div.textContent = text;
+      messagesEl.appendChild(div);
+      messagesEl.scrollTop = messagesEl.scrollHeight;
+    }
+
+    function setLoading(on) {
+      isStreaming = on;
+      sendBtn.disabled = on;
+      userInput.disabled = on;
+    }
+
+    /* ── Main send logic ─────────────────────────── */
+    async function sendMessage() {
+      const text = userInput.value.trim();
+      if (!text || isStreaming) return;
+
+      userInput.value = '';
+      userInput.style.height = 'auto';
+
+      addBubble('user', text);
+      conversation.push({ role: 'user', content: text });
+
+      const apiUrl = document.getElementById('apiUrl').value.trim();
+      const authToken = document.getElementById('authToken').value.trim();
+      const systemPrompt = document.getElementById('systemPrompt').value.trim();
+
+      if (!apiUrl) {
+        addError('Backend URL is not configured. Open Settings to set it.');
+        return;
+      }
+
+      const messages = [];
+      if (systemPrompt) {
+        messages.push({ role: 'system', content: systemPrompt });
+      }
+      messages.push(...conversation);
+
+      setLoading(true);
+
+      const contentEl = addBubble('assistant', '');
+      const cursor = document.createElement('span');
+      cursor.className = 'cursor';
+      contentEl.parentElement.appendChild(cursor);
+
+      let fullText = '';
+
+      try {
+        const headers = { 'Content-Type': 'application/json' };
+        if (authToken) {
+          headers['Authorization'] = 'Bearer ' + authToken;
+        }
+
+        const resp = await fetch(apiUrl, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ messages }),
+        });
+
+        if (!resp.ok) {
+          const body = await resp.text();
+          let errorMsg;
+          try {
+            errorMsg = JSON.parse(body).error || body;
+          } catch {
+            errorMsg = body || 'HTTP ' + resp.status;
+          }
+          throw new Error(errorMsg);
+        }
+
+        const reader = resp.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n');
+          buffer = lines.pop();
+
+          for (const line of lines) {
+            if (line.startsWith('event: error')) {
+              continue;
+            }
+
+            if (!line.startsWith('data: ')) continue;
+            const payload = line.slice(6);
+
+            if (payload === '[DONE]') break;
+
+            // Handle SSE error events
+            if (line === '' && buffer.startsWith('data: ')) {
+              continue;
+            }
+
+            try {
+              const json = JSON.parse(payload);
+
+              // Check for error event data
+              if (json.error) {
+                throw new Error(json.error);
+              }
+
+              const delta = json.choices?.[0]?.delta?.content;
+              if (delta) {
+                fullText += delta;
+                contentEl.textContent = fullText;
+                messagesEl.scrollTop = messagesEl.scrollHeight;
+              }
+            } catch (e) {
+              if (e.message && !e.message.startsWith('Unexpected') &&
+                  !e.message.startsWith('JSON')) {
+                throw e;
+              }
+            }
+          }
+        }
+
+        conversation.push({ role: 'assistant', content: fullText });
+
+      } catch (err) {
+        if (!fullText) {
+          contentEl.parentElement.remove();
+        }
+        addError(err.message || 'Connection failed');
+      } finally {
+        cursor.remove();
+        setLoading(false);
+        userInput.focus();
+      }
+    }
+  </script>
+</body>
+</html>
