@@ -124,6 +124,59 @@ class GroqClientTest extends TestCase
         $this->assertSame([], $messages);
     }
 
+    // ── validateMessages ─────────────────────────────────────────────
+
+    public function testValidateMessagesAcceptsValidMessages(): void
+    {
+        $messages = [
+            ['role' => 'system', 'content' => 'You are helpful.'],
+            ['role' => 'user', 'content' => 'Hi'],
+            ['role' => 'assistant', 'content' => 'Hello!'],
+        ];
+        $this->assertNull($this->client->validateMessages($messages));
+    }
+
+    public function testValidateMessagesRejectsEmptyArray(): void
+    {
+        $this->assertSame('Messages array must not be empty', $this->client->validateMessages([]));
+    }
+
+    public function testValidateMessagesRejectsMissingRole(): void
+    {
+        $messages = [['content' => 'Hi']];
+        $this->assertSame('Invalid message format', $this->client->validateMessages($messages));
+    }
+
+    public function testValidateMessagesRejectsMissingContent(): void
+    {
+        $messages = [['role' => 'user']];
+        $this->assertSame('Invalid message format', $this->client->validateMessages($messages));
+    }
+
+    public function testValidateMessagesRejectsInvalidRole(): void
+    {
+        $messages = [['role' => 'admin', 'content' => 'Hi']];
+        $this->assertSame('Invalid message format', $this->client->validateMessages($messages));
+    }
+
+    public function testValidateMessagesRejectsNonStringRole(): void
+    {
+        $messages = [['role' => 123, 'content' => 'Hi']];
+        $this->assertSame('Invalid message format', $this->client->validateMessages($messages));
+    }
+
+    public function testValidateMessagesRejectsNonStringContent(): void
+    {
+        $messages = [['role' => 'user', 'content' => 123]];
+        $this->assertSame('Invalid message format', $this->client->validateMessages($messages));
+    }
+
+    public function testValidateMessagesRejectsNonArrayMessage(): void
+    {
+        $messages = ['not an array'];
+        $this->assertSame('Invalid message format', $this->client->validateMessages($messages));
+    }
+
     // ── buildPayload ────────────────────────────────────────────────
 
     public function testBuildPayloadDefaultStream(): void
@@ -180,6 +233,13 @@ class GroqClientTest extends TestCase
         $this->assertArrayHasKey(CURLOPT_HTTPHEADER, $opts);
         $this->assertArrayHasKey(CURLOPT_POSTFIELDS, $opts);
         $this->assertArrayHasKey(CURLOPT_RETURNTRANSFER, $opts);
+        $this->assertArrayHasKey(CURLOPT_TIMEOUT, $opts);
+    }
+
+    public function testBuildCurlOptionsSetsTimeoutTo30(): void
+    {
+        $opts = $this->client->buildCurlOptions([]);
+        $this->assertSame(30, $opts[CURLOPT_TIMEOUT]);
     }
 
     public function testBuildCurlOptionsSetsPostToTrue(): void
@@ -259,15 +319,27 @@ class GroqClientTest extends TestCase
         $this->assertSame('keep-alive', $headers['Connection']);
     }
 
-    public function testGetSseHeadersReturnsCorsWildcard(): void
+    public function testGetSseHeadersOmitsCorsWhenNoOrigin(): void
     {
         $headers = $this->client->getSseHeaders();
-        $this->assertSame('*', $headers['Access-Control-Allow-Origin']);
+        $this->assertArrayNotHasKey('Access-Control-Allow-Origin', $headers);
     }
 
-    public function testGetSseHeadersContainsFourEntries(): void
+    public function testGetSseHeadersIncludesCorsWhenOriginProvided(): void
+    {
+        $headers = $this->client->getSseHeaders('https://myapp.com');
+        $this->assertSame('https://myapp.com', $headers['Access-Control-Allow-Origin']);
+    }
+
+    public function testGetSseHeadersContainsThreeEntriesWithoutOrigin(): void
     {
         $headers = $this->client->getSseHeaders();
+        $this->assertCount(3, $headers);
+    }
+
+    public function testGetSseHeadersContainsFourEntriesWithOrigin(): void
+    {
+        $headers = $this->client->getSseHeaders('https://example.com');
         $this->assertCount(4, $headers);
     }
 

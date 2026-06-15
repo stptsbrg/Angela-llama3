@@ -31,6 +31,8 @@ class GroqClient
         return $this->model;
     }
 
+    private const ALLOWED_ROLES = ['system', 'user', 'assistant'];
+
     /**
      * Parse the raw JSON input body and extract the messages array.
      */
@@ -41,6 +43,28 @@ class GroqClient
             return [];
         }
         return $input['messages'] ?? [];
+    }
+
+    /**
+     * Validate that each message has the expected structure.
+     * Returns null on success, or an error string on failure.
+     */
+    public function validateMessages(array $messages): ?string
+    {
+        if (empty($messages)) {
+            return 'Messages array must not be empty';
+        }
+        foreach ($messages as $msg) {
+            if (!is_array($msg)
+                || !isset($msg['role'], $msg['content'])
+                || !is_string($msg['role'])
+                || !is_string($msg['content'])
+                || !in_array($msg['role'], self::ALLOWED_ROLES, true)
+            ) {
+                return 'Invalid message format';
+            }
+        }
+        return null;
     }
 
     /**
@@ -68,7 +92,7 @@ class GroqClient
             ],
             CURLOPT_POSTFIELDS => json_encode($payload),
             CURLOPT_RETURNTRANSFER => false,
-            CURLOPT_TIMEOUT => 120,
+            CURLOPT_TIMEOUT => 30,
             CURLOPT_CONNECTTIMEOUT => 10,
         ];
 
@@ -82,14 +106,17 @@ class GroqClient
     /**
      * Return the SSE response headers.
      */
-    public function getSseHeaders(): array
+    public function getSseHeaders(?string $allowedOrigin = null): array
     {
-        return [
+        $headers = [
             'Content-Type' => 'text/event-stream',
             'Cache-Control' => 'no-cache',
             'Connection' => 'keep-alive',
-            'Access-Control-Allow-Origin' => '*',
         ];
+        if ($allowedOrigin !== null) {
+            $headers['Access-Control-Allow-Origin'] = $allowedOrigin;
+        }
+        return $headers;
     }
 
     /**
@@ -109,9 +136,9 @@ class GroqClient
     /**
      * Send SSE headers.
      */
-    public function sendSseHeaders(): void
+    public function sendSseHeaders(?string $allowedOrigin = null): void
     {
-        foreach ($this->getSseHeaders() as $name => $value) {
+        foreach ($this->getSseHeaders($allowedOrigin) as $name => $value) {
             header("$name: $value");
         }
     }
